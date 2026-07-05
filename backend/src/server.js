@@ -24,45 +24,23 @@ const __dirname = path.dirname(__filename);
 ============================ */
 
 const allowedOrigins = [
-
   "https://flavorfusionff123.netlify.app",
   "https://splendid-macaron-f2c829.netlify.app",
-  "https://delightful-entremet-93c1e7.netlify.app"
+  "https://delightful-entremet-93c1e7.netlify.app",
+    "http://localhost:5173", // for Vite dev server
+  "http://localhost:3000",
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests without origin (Postman, curl)
-    if (!origin) {
-      return callback(null, true);
-    }
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
     console.log("❌ Blocked by CORS:", origin);
     return callback(new Error("Origin not allowed by CORS"));
   },
-
   credentials: true,
-
-  methods: [
-    "GET",
-    "POST",
-    "PUT",
-    "PATCH",
-    "DELETE",
-    "OPTIONS",
-  ],
-
-  allowedHeaders: [
-    "Origin",
-    "X-Requested-With",
-    "Content-Type",
-    "Accept",
-    "Authorization",
-  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"],
 };
 
 app.use(cors(corsOptions));
@@ -76,33 +54,37 @@ app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 /* ============================
-   Static Files
+   🔍 Debug: Log all incoming requests
 ============================ */
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.originalUrl}`);
+  next();
+});
 
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+/* ============================
+   Static Files (make sure path exists)
+============================ */
+const uploadsPath = path.join(__dirname, "../uploads");
+app.use("/uploads", express.static(uploadsPath));
+console.log(`📁 Serving static files from: ${uploadsPath}`);
 
 /* ============================
    Routes
 ============================ */
 
 app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "FlavorFusion Backend Running 🚀",
-  });
+  res.status(200).json({ success: true, message: "FlavorFusion Backend Running 🚀" });
 });
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
     status: "OK",
-    database:
-      mongoose.connection.readyState === 1
-        ? "Connected"
-        : "Disconnected",
+    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
   });
 });
 
+// Mount all route modules
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/recipes", recipeRoutes);
@@ -110,10 +92,34 @@ app.use("/api/mealplans", mealPlanRoutes);
 app.use("/api/favorites", favoriteRoutes);
 
 /* ============================
-   404 Handler
+   🧪 Debug: List all registered routes
 ============================ */
+const listRoutes = (router, basePath = "") => {
+  router.stack.forEach((layer) => {
+    if (layer.route) {
+      const methods = Object.keys(layer.route.methods).join(", ").toUpperCase();
+      console.log(`✅ ${methods} ${basePath}${layer.route.path}`);
+    } else if (layer.name === "router" && layer.handle.stack) {
+      // Nested routers (if any)
+      const newBase = basePath + (layer.regexp.source.replace(/\\/g, "").replace(/\^/g, "").replace(/\?/g, "").replace(/\([^)]*\)/g, ""));
+      listRoutes(layer.handle, newBase);
+    }
+  });
+};
 
+console.log("\n📋 Registered routes:");
+listRoutes(authRoutes, "/api/auth");
+listRoutes(profileRoutes, "/api/profile");
+listRoutes(recipeRoutes, "/api/recipes");
+listRoutes(mealPlanRoutes, "/api/mealplans");
+listRoutes(favoriteRoutes, "/api/favorites");
+console.log("");
+
+/* ============================
+   404 Handler (must be LAST)
+============================ */
 app.use((req, res) => {
+  console.warn(`⚠️ 404 Not Found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
     message: "API route not found",
@@ -123,10 +129,8 @@ app.use((req, res) => {
 /* ============================
    Global Error Handler
 ============================ */
-
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err);
-
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal Server Error",
@@ -134,22 +138,18 @@ app.use((err, req, res, next) => {
 });
 
 /* ============================
-   MongoDB Connection
+   MongoDB Connection & Server Start
 ============================ */
-
 async function startServer() {
   try {
     console.log("Connecting to MongoDB...");
-
     if (!process.env.MONGODB_URI) {
       throw new Error("MONGODB_URI environment variable is missing.");
     }
-
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 45000,
     });
-
     console.log("✅ MongoDB Connected Successfully");
 
     app.listen(PORT, "0.0.0.0", () => {
