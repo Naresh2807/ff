@@ -5,7 +5,8 @@ import mongoose from "mongoose";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import authRoutes from "./routes/authRoutes.js";
+
+import authRoutes from "./routes/ar.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import recipeRoutes from "./routes/recipeRoutes.js";
 import mealPlanRoutes from "./routes/mealPlanRoutes.js";
@@ -19,141 +20,260 @@ const PORT = process.env.PORT || 5000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/* ============================
+/* ==========================================
    CORS Configuration
-============================ */
+========================================== */
 
 const allowedOrigins = [
   "https://flavorfusionff123.netlify.app",
-  "https://splendid-macaron-f2c829.netlify.app",
-  "https://delightful-entremet-93c1e7.netlify.app",
-    "http://localhost:5173", // for Vite dev server
-  "http://localhost:3000",
+  "http://localhost:5173",
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow Postman, curl, mobile apps
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
     console.log("❌ Blocked by CORS:", origin);
+
     return callback(new Error("Origin not allowed by CORS"));
   },
+
   credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"],
+
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+  ],
+
+  allowedHeaders: [
+    "Origin",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "X-Requested-With",
+  ],
 };
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-/* ============================
+/* ==========================================
    Middleware
-============================ */
+========================================== */
 
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-/* ============================
-   🔍 Debug: Log all incoming requests
-============================ */
-app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.originalUrl}`);
-  next();
-});
+/* ==========================================
+   Static Files
+========================================== */
 
-/* ============================
-   Static Files (make sure path exists)
-============================ */
-const uploadsPath = path.join(__dirname, "../uploads");
-app.use("/uploads", express.static(uploadsPath));
-console.log(`📁 Serving static files from: ${uploadsPath}`);
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-/* ============================
-   Routes
-============================ */
+/* ==========================================
+   Root Route
+========================================== */
 
 app.get("/", (req, res) => {
-  res.status(200).json({ success: true, message: "FlavorFusion Backend Running 🚀" });
+  res.status(200).json({
+    success: true,
+    message: "🚀 FlavorFusion Backend Running",
+    version: "1.0.0",
+  });
 });
+
+/* ==========================================
+   API Health
+========================================== */
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
     status: "OK",
-    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    database:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
+    uptime: process.uptime(),
+    timestamp: new Date(),
   });
 });
 
-// Mount all route modules
+/* ==========================================
+   API Test
+========================================== */
+
+app.get("/api/test", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "All API routes are reachable.",
+    database:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
+    server: "Running",
+    time: new Date(),
+  });
+});
+
+/* ==========================================
+   API Index
+========================================== */
+
+app.get("/api", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "FlavorFusion REST API",
+    routes: {
+      root: "/",
+      health: "GET /api/health",
+      test: "GET /api/test",
+
+      auth: {
+        register: "POST /api/auth/register",
+        login: "POST /api/auth/login",
+        currentUser: "GET /api/auth/me",
+      },
+
+      profile: {
+        getProfile: "GET /api/profile",
+        updateProfile: "PUT /api/profile",
+      },
+
+      recipes: {
+        getAll: "GET /api/recipes",
+        getById: "GET /api/recipes/:id",
+        create: "POST /api/recipes",
+        update: "PUT /api/recipes/:id",
+        delete: "DELETE /api/recipes/:id",
+        like: "PATCH /api/recipes/:id/like",
+        rate: "POST /api/recipes/:id/rate",
+        comment: "POST /api/recipes/:id/comment",
+      },
+
+      mealPlans: {
+        getAll: "GET /api/mealplans",
+        create: "POST /api/mealplans",
+        update: "PUT /api/mealplans/:id",
+        delete: "DELETE /api/mealplans/:id",
+      },
+
+      favorites: {
+        getAll: "GET /api/favorites",
+        toggle: "POST /api/favorites/:recipeId",
+      },
+    },
+  });
+});
+
+/* ==========================================
+   API Routes
+========================================== */
+
 app.use("/api/auth", authRoutes);
+
 app.use("/api/profile", profileRoutes);
 app.use("/api/recipes", recipeRoutes);
 app.use("/api/mealplans", mealPlanRoutes);
 app.use("/api/favorites", favoriteRoutes);
 
-/* ============================
-   🧪 Debug: List all registered routes
-============================ */
-const listRoutes = (router, basePath = "") => {
-  router.stack.forEach((layer) => {
-    if (layer.route) {
-      const methods = Object.keys(layer.route.methods).join(", ").toUpperCase();
-      console.log(`✅ ${methods} ${basePath}${layer.route.path}`);
-    } else if (layer.name === "router" && layer.handle.stack) {
-      // Nested routers (if any)
-      const newBase = basePath + (layer.regexp.source.replace(/\\/g, "").replace(/\^/g, "").replace(/\?/g, "").replace(/\([^)]*\)/g, ""));
-      listRoutes(layer.handle, newBase);
-    }
+/* ==========================================
+   Route Checker
+========================================== */
+
+app.get("/api/check", (req, res) => {
+  res.status(200).json({
+    success: true,
+    database:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
+
+    routes: [
+      {
+        route: "/api/auth",
+        status: "Available",
+      },
+      {
+        route: "/api/profile",
+        status: "Available",
+      },
+      {
+        route: "/api/recipes",
+        status: "Available",
+      },
+      {
+        route: "/api/mealplans",
+        status: "Available",
+      },
+      {
+        route: "/api/favorites",
+        status: "Available",
+      },
+    ],
   });
-};
+});
 
-console.log("\n📋 Registered routes:");
-listRoutes(authRoutes, "/api/auth");
-listRoutes(profileRoutes, "/api/profile");
-listRoutes(recipeRoutes, "/api/recipes");
-listRoutes(mealPlanRoutes, "/api/mealplans");
-listRoutes(favoriteRoutes, "/api/favorites");
-console.log("");
+/* ==========================================
+   404 Handler
+========================================== */
 
-/* ============================
-   404 Handler (must be LAST)
-============================ */
 app.use((req, res) => {
-  console.warn(`⚠️ 404 Not Found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
     message: "API route not found",
   });
 });
 
-/* ============================
+/* ==========================================
    Global Error Handler
-============================ */
+========================================== */
+
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err);
+
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal Server Error",
   });
 });
 
-/* ============================
-   MongoDB Connection & Server Start
-============================ */
+/* ==========================================
+   MongoDB Connection
+========================================== */
+
 async function startServer() {
   try {
-    console.log("Connecting to MongoDB...");
+    console.log("🔄 Connecting to MongoDB...");
+
     if (!process.env.MONGODB_URI) {
       throw new Error("MONGODB_URI environment variable is missing.");
     }
+
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 45000,
     });
+
     console.log("✅ MongoDB Connected Successfully");
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
+      console.log(`📌 API Index   : http://localhost:${PORT}/api`);
+      console.log(`📌 Health      : http://localhost:${PORT}/api/health`);
+      console.log(`📌 API Test    : http://localhost:${PORT}/api/test`);
+      console.log(`📌 Route Check : http://localhost:${PORT}/api/check`);
     });
   } catch (error) {
     console.error("❌ MongoDB Connection Failed");

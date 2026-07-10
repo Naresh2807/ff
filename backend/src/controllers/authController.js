@@ -1,180 +1,173 @@
-import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
-// Generate JWT token
+/* ==========================================
+   Generate JWT Token
+========================================== */
+
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d',
-  });
+  return jwt.sign(
+    { id },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: process.env.JWT_EXPIRE || "7d",
+    }
+  );
 };
 
-// @desc   Register a new user
-// @route  POST /api/auth/register
-// @access Public
+/* ==========================================
+   Register User
+========================================== */
+
 export const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validate required fields
+    // Validation
     if (!name || !email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide name, email and password',
+        message: "Name, email and password are required.",
       });
     }
 
-    // Validate email format
-    const emailRegex = /^\S+@\S+\.\S+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid email address',
-      });
-    }
+    // Check existing user
+    const userExists = await User.findOne({ email });
 
-    // Validate password length
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters',
-      });
-    }
-
-    // Check if user already exists
-    const userExists = await User.findOne({ email: email.toLowerCase().trim() });
     if (userExists) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email',
+        message: "User already exists with this email.",
       });
     }
 
-    // Create user
+    // Create new user
     const user = await User.create({
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
+      name,
+      email,
       password,
     });
 
-    // Generate token
-    const token = generateToken(user._id);
-
-    // Return user data (excluding password)
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: "User registered successfully.",
+      token: generateToken(user._id),
       user: {
-        _id: user._id,
+        id: user._id,
         name: user.name,
         email: user.email,
-        bio: user.bio || '',
-        profileImage: user.profileImage || '',
-        favorites: user.favorites || [],
+        bio: user.bio,
+        profileImage: user.profileImage,
+        favorites: user.favorites,
         createdAt: user.createdAt,
       },
-      token,
     });
+
   } catch (error) {
-    console.error('❌ Register error:', error);
+    console.error("Register Error:", error);
+
     res.status(500).json({
       success: false,
-      message: 'Server error during registration',
+      message: error.message,
     });
   }
 };
 
-// @desc   Login user
-// @route  POST /api/auth/login
-// @access Public
+/* ==========================================
+   Login User
+========================================== */
+
 export const login = async (req, res) => {
   try {
+
     const { email, password } = req.body;
 
-    // Validate required fields
+    // Validation
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide email and password',
+        message: "Email and password are required.",
       });
     }
 
-    // Find user and explicitly select password field
-    const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+password');
+    // Find user
+    const user = await User.findOne({ email }).select("+password");
+
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password',
+        message: "Invalid email or password.",
       });
     }
 
-    // Verify password
+    // Compare password
     const isMatch = await user.comparePassword(password);
+
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password',
+        message: "Invalid email or password.",
       });
     }
 
-    // Generate token
-    const token = generateToken(user._id);
-
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful.",
+      token: generateToken(user._id),
       user: {
-        _id: user._id,
+        id: user._id,
         name: user.name,
         email: user.email,
-        bio: user.bio || '',
-        profileImage: user.profileImage || '',
-        favorites: user.favorites || [],
+        bio: user.bio,
+        profileImage: user.profileImage,
+        favorites: user.favorites,
         createdAt: user.createdAt,
       },
-      token,
     });
+
   } catch (error) {
-    console.error('❌ Login error:', error);
+
+    console.error("Login Error:", error);
+
     res.status(500).json({
       success: false,
-      message: 'Server error during login',
+      message: error.message,
     });
   }
 };
 
-// @desc   Get current user profile
-// @route  GET /api/auth/me
-// @access Private
+/* ==========================================
+   Get Logged-in User
+========================================== */
+
 export const getMe = async (req, res) => {
   try {
+
     const user = await User.findById(req.user.id)
-      .select('-password')
-      .populate('favorites', 'title image averageRating cuisine mealType');
+      .populate(
+        "favorites",
+        "title image averageRating cuisine mealType"
+      );
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found.",
       });
     }
 
     res.status(200).json({
       success: true,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        bio: user.bio || '',
-        profileImage: user.profileImage || '',
-        favorites: user.favorites || [],
-        createdAt: user.createdAt,
-      },
+      user,
     });
+
   } catch (error) {
-    console.error('❌ Get me error:', error);
+
+    console.error("GetMe Error:", error);
+
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: error.message,
     });
   }
 };
