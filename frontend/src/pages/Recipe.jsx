@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getRecipe,
@@ -27,17 +27,15 @@ import {
   BookmarkCheck,
 } from 'lucide-react';
 
-const BASE_URL = (
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
-).replace('/api', '');
+const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 
-// Fallback placeholder (inline SVG data URI)
 const PLACEHOLDER_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' font-family='sans-serif' font-size='60' text-anchor='middle' dy='.3em' fill='%239ca3af'%3E🍽️%3C/text%3E%3C/svg%3E";
 
 function Recipe() {
   const { id } = useParams();
   const navigate = useNavigate();
+
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,45 +49,69 @@ function Recipe() {
   const isAuthenticated = !!localStorage.getItem('token');
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
-  const fetchRecipe = async () => {
-  try {
-    setLoading(true);
+  // Memoized values for performance
+  const imageUrl = useMemo(
+    () => (recipe?.image ? `${BASE_URL}${recipe.image}` : PLACEHOLDER_IMAGE),
+    [recipe?.image]
+  );
+  const videoUrl = useMemo(
+    () => (recipe?.video ? `${BASE_URL}${recipe.video}` : ''),
+    [recipe?.video]
+  );
+  const displayRating = useMemo(
+    () =>
+      recipe?.averageRating != null
+        ? Number(recipe.averageRating).toFixed(1)
+        : 'No ratings',
+    [recipe?.averageRating]
+  );
 
-    const recipeData = await getRecipe(id);
+  const fetchRecipe = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    console.log("Recipe:", recipeData);
-
-    setRecipe(recipeData);
-    setIsLiked(recipeData.isLiked || false);
-    setLikesCount(recipeData.likes?.length || 0);
-    setUserRating(recipeData.userRating || null);
-
-    if (isAuthenticated) {
-      try {
-        const fav = await checkFavorite(id);
-        setIsFavorite(fav.isFavorite);
-      } catch (err) {
-        console.error(err);
+      const requests = [getRecipe(id)];
+      if (isAuthenticated) {
+        requests.push(checkFavorite(id));
       }
-    }
 
-    setError(null);
-  } catch (err) {
-    console.error("Error fetching recipe:", err);
+      const results = await Promise.allSettled(requests);
+      const recipeResult = results[0];
 
-    if (err.response?.status === 404) {
-      setError("Recipe not found");
-    } else {
-      setError(err.response?.data?.message || "Unable to load recipe.");
+      if (recipeResult.status === 'rejected') {
+        throw recipeResult.reason;
+      }
+
+      const recipeData = recipeResult.value;
+      if (!recipeData || !recipeData._id) {
+        throw new Error('Recipe not found');
+      }
+
+      setRecipe(recipeData);
+      setIsLiked(recipeData.isLiked || false);
+      setLikesCount(recipeData.likes?.length || 0);
+      setUserRating(recipeData.userRating || null);
+
+      if (isAuthenticated && results[1]) {
+        const favResult = results[1];
+        if (favResult.status === 'fulfilled') {
+          setIsFavorite(favResult.value.isFavorite);
+        }
+      }
+
+      setError(null);
+    } catch (err) {
+      console.error('❌ Error fetching recipe:', err);
+      setError(err.response?.status === 404 ? 'Recipe not found' : 'Unable to load recipe.');
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  }, [id, isAuthenticated]);
 
   useEffect(() => {
     fetchRecipe();
-  }, [id]);
+  }, [fetchRecipe]);
 
   const handleLike = async () => {
     if (!isAuthenticated) {
@@ -98,21 +120,16 @@ function Recipe() {
     }
     try {
       const response = await toggleLike(id);
-      setIsLiked(response.data.isLiked);
-      // ✅ Problem 8 fixed – handle both array and count
-      const newLikesCount = Array.isArray(response.data.likes)
-        ? response.data.likes.length
-        : response.data.likes;
-      setLikesCount(newLikesCount);
+      const data = response.data;
+      setIsLiked(data.isLiked);
+      const newCount = Array.isArray(data.likes) ? data.likes.length : data.likes;
+      setLikesCount(newCount);
 
-      // ✅ Problem 1 fixed – safe like update with toString()
       setRecipe((prev) => ({
         ...prev,
-        likes: response.data.isLiked
+        likes: data.isLiked
           ? [...(prev.likes || []), currentUser.id]
-          : (prev.likes || []).filter(
-              (uid) => uid.toString() !== currentUser.id
-            ),
+          : (prev.likes || []).filter((uid) => uid.toString() !== currentUser.id),
       }));
     } catch (err) {
       console.error('Error toggling like:', err);
@@ -127,23 +144,39 @@ function Recipe() {
     try {
       await rateRecipe(id, value);
       setUserRating(value);
-      // ✅ Problem 2 fixed – refresh the recipe to get updated averageRating and ratings count
       await fetchRecipe();
     } catch (err) {
       console.error('Error rating:', err);
     }
   };
 
+  // ✅ FIXED: Optimistic favorite toggle
   const handleFavorite = async () => {
     if (!isAuthenticated) {
       navigate('/login');
       return;
     }
+
+    // 1. Save previous state and toggle optimistically
+    const previousState = isFavorite;
+    setIsFavorite(!isFavorite);
+
     try {
+      // 2. Call the API
       const res = await toggleFavorite(id);
-      setIsFavorite(res.data.isFavorite);
+
+      // 3. Extract the new favorite status (handles both `res.isFavorite` and `res.data.isFavorite`)
+      const newFavoriteStatus = res.isFavorite ?? res.data?.isFavorite;
+
+      // 4. If the server returned a value, update the state (in case of race or mismatch)
+      if (newFavoriteStatus !== undefined && newFavoriteStatus !== !previousState) {
+        setIsFavorite(newFavoriteStatus);
+      }
     } catch (err) {
+      // 5. Revert on error
+      setIsFavorite(previousState);
       console.error('Error toggling favorite:', err);
+      alert('Failed to update favorites. Please try again.');
     }
   };
 
@@ -152,7 +185,6 @@ function Recipe() {
     try {
       setIsAddingComment(true);
       await addComment(id, text);
-      // ✅ Problem 3 fixed – refresh comments
       await fetchRecipe();
     } catch (err) {
       console.error('Error adding comment:', err);
@@ -194,18 +226,7 @@ function Recipe() {
     );
   }
 
-  const isAuthor =
-    recipe?.author?._id?.toString() === currentUser?.id?.toString();
-
-  // ✅ Problem 7 – conditional image/video URL
-  const imageUrl = recipe.image ? `${BASE_URL}${recipe.image}` : PLACEHOLDER_IMAGE;
-  const videoUrl = recipe.video ? `${BASE_URL}${recipe.video}` : '';
-
-  // ✅ Problem 6 – safe rating formatting
-  const displayRating =
-    recipe.averageRating != null
-      ? Number(recipe.averageRating).toFixed(1)
-      : 'No ratings';
+  const isAuthor = recipe?.author?._id?.toString() === currentUser?.id?.toString();
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -221,29 +242,28 @@ function Recipe() {
         {/* Image / Video */}
         <div className="relative h-80 md:h-96 bg-gray-200">
           {showVideo && recipe.video ? (
-<video
-  controls
-  autoPlay
-  playsInline
-  preload="metadata"
-  className="w-full h-full object-cover"
->
-  <source src={videoUrl} type="video/mp4" />
-  Your browser does not support the video tag.
-</video>
+            <video
+              controls
+              autoPlay
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-cover"
+            >
+              <source src={videoUrl} type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
           ) : (
             <img
               src={imageUrl}
               alt={recipe.title}
               className="w-full h-full object-cover"
-              // ✅ Problem 4 – use inline placeholder data URI
               onError={(e) => {
+                e.target.onerror = null;
                 e.target.src = PLACEHOLDER_IMAGE;
               }}
             />
           )}
 
-          {/* Video overlay */}
           {recipe.video && !showVideo && (
             <button
               onClick={() => setShowVideo(true)}
@@ -314,9 +334,7 @@ function Recipe() {
               <div className="flex items-center space-x-4 mt-2">
                 <div className="flex items-center space-x-1">
                   <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-                  <span className="font-semibold text-gray-700">
-                    {displayRating}
-                  </span>
+                  <span className="font-semibold text-gray-700">{displayRating}</span>
                   <span className="text-gray-400 text-sm">
                     ({recipe.ratings?.length || 0})
                   </span>
@@ -324,9 +342,7 @@ function Recipe() {
                 <span className="text-gray-300">|</span>
                 <div className="flex items-center space-x-1 text-gray-500">
                   <Heart
-                    className={`w-4 h-4 ${
-                      isLiked ? 'fill-red-500 text-red-500' : ''
-                    }`}
+                    className={`w-4 h-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`}
                   />
                   <span>{likesCount}</span>
                 </div>
@@ -380,9 +396,7 @@ function Recipe() {
           {/* Rating */}
           <div className="py-4 border-b border-gray-100">
             <div className="flex items-center space-x-4">
-              <span className="font-medium text-gray-700">
-                Rate this recipe:
-              </span>
+              <span className="font-medium text-gray-700">Rate this recipe:</span>
               <RatingStars
                 rating={userRating || 0}
                 onRate={handleRate}
@@ -399,38 +413,30 @@ function Recipe() {
 
           {/* Description */}
           <div className="py-4 border-b border-gray-100">
-            <h3 className="text-lg font-bold text-gray-800 mb-2">
-              Description
-            </h3>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Description</h3>
             <p className="text-gray-600 leading-relaxed">{recipe.description}</p>
           </div>
 
           {/* Dietary preferences */}
-          {recipe.dietaryPreference &&
-            recipe.dietaryPreference.length > 0 &&
-            recipe.dietaryPreference[0] !== 'None' && (
-              <div className="py-4 border-b border-gray-100">
-                <h3 className="text-lg font-bold text-gray-800 mb-2">
-                  Dietary Preferences
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {recipe.dietaryPreference.map((d) => (
-                    <span
-                      key={d}
-                      className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium"
-                    >
-                      {d}
-                    </span>
-                  ))}
-                </div>
+          {recipe.dietaryPreference?.length > 0 && recipe.dietaryPreference[0] !== 'None' && (
+            <div className="py-4 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800 mb-2">Dietary Preferences</h3>
+              <div className="flex flex-wrap gap-2">
+                {recipe.dietaryPreference.map((d) => (
+                  <span
+                    key={d}
+                    className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium"
+                  >
+                    {d}
+                  </span>
+                ))}
               </div>
-            )}
+            </div>
+          )}
 
           {/* Ingredients */}
           <div className="py-4 border-b border-gray-100">
-            <h3 className="text-lg font-bold text-gray-800 mb-3">
-              Ingredients
-            </h3>
+            <h3 className="text-lg font-bold text-gray-800 mb-3">Ingredients</h3>
             <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {recipe.ingredients?.map((ing, index) => (
                 <li
@@ -456,9 +462,7 @@ function Recipe() {
                   <span className="flex-shrink-0 w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">
                     {index + 1}
                   </span>
-                  <span className="text-gray-700 pt-0.5">
-                    {step.description}
-                  </span>
+                  <span className="text-gray-700 pt-0.5">{step.description}</span>
                 </li>
               ))}
             </ol>

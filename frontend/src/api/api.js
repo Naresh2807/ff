@@ -1,14 +1,22 @@
 import axios from "axios";
 
 // ==========================================
+// Base URL
+// ==========================================
+
+const BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+
+// ==========================================
 // Axios Instance
 // ==========================================
 
 const API = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_URL ||
-    "https://flavorfusion-1-wxvp.onrender.com/api",
+  baseURL: BASE_URL,
   withCredentials: false,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
 // ==========================================
@@ -18,9 +26,15 @@ const API = axios.create({
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    console.log(
+      `➡️ ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`
+    );
+
     return config;
   },
   (error) => Promise.reject(error)
@@ -31,12 +45,16 @@ API.interceptors.request.use(
 // ==========================================
 
 API.interceptors.response.use(
-  (response) => response.data,    // 👈  EXTRACT DATA HERE
+  (response) => {
+    console.log("✅ Response:", response.data);
+    return response.data;
+  },
   (error) => {
+    console.error("❌ API Error:", error.response?.data || error.message);
+
     const status = error.response?.status;
     const url = error.config?.url || "";
 
-    // Only logout when protected endpoints fail
     if (
       status === 401 &&
       (
@@ -75,17 +93,12 @@ export const getCurrentUser = () =>
 export const getProfile = () =>
   API.get("/profile");
 
-export const updateProfile = (data) => {
-  const formData = new FormData();
-  Object.keys(data).forEach((key) => {
-    if (data[key] !== undefined && data[key] !== null) {
-      formData.append(key, data[key]);
-    }
+export const updateProfile = (formData) =>
+  API.put("/profile", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
   });
-  return API.put("/profile", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-};
 
 // ==========================================
 // RECIPES
@@ -97,45 +110,19 @@ export const getRecipes = (params = {}) =>
 export const getRecipe = (id) =>
   API.get(`/recipes/${id}`);
 
-export const createRecipe = (data) => {
-  const formData = new FormData();
-  Object.keys(data).forEach((key) => {
-    if (data[key] !== undefined && data[key] !== null) {
-      if (
-        key === "ingredients" ||
-        key === "steps" ||
-        key === "dietaryPreference"
-      ) {
-        formData.append(key, JSON.stringify(data[key]));
-      } else {
-        formData.append(key, data[key]);
-      }
-    }
+export const createRecipe = (formData) =>
+  API.post("/recipes", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
   });
-  return API.post("/recipes", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-};
 
-export const updateRecipe = (id, data) => {
-  const formData = new FormData();
-  Object.keys(data).forEach((key) => {
-    if (data[key] !== undefined && data[key] !== null) {
-      if (
-        key === "ingredients" ||
-        key === "steps" ||
-        key === "dietaryPreference"
-      ) {
-        formData.append(key, JSON.stringify(data[key]));
-      } else {
-        formData.append(key, data[key]);
-      }
-    }
+export const updateRecipe = (id, formData) =>
+  API.put(`/recipes/${id}`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
   });
-  return API.put(`/recipes/${id}`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-};
 
 export const deleteRecipe = (id) =>
   API.delete(`/recipes/${id}`);
@@ -163,7 +150,7 @@ export const checkFavorite = (id) =>
   API.get(`/favorites/check/${id}`);
 
 // ==========================================
-// MEAL PLANNER
+// MEAL PLANS
 // ==========================================
 
 export const getMealPlans = () =>
@@ -177,9 +164,5 @@ export const deleteMealPlan = (id) =>
 
 export const getShoppingList = () =>
   API.get("/mealplans/shopping-list");
-
-// ==========================================
-// Export Axios Instance
-// ==========================================
 
 export default API;

@@ -21,11 +21,11 @@ function Login({ onLogin }) {
 
     try {
       const response = await loginUser(formData);
-      const { user, token } = response.data;
+      const { user, token } = response;
       onLogin(token, user);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      setError(err.response?.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }

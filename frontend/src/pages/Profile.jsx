@@ -16,20 +16,26 @@ function Profile({ user, setUser }) {
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState('');
 
+  // --------------------------------------------
+  // Fetch profile – no .data thanks to interceptor
+  // --------------------------------------------
   const fetchProfile = async () => {
     try {
-      const response = await getProfile();
-      setProfile(response.data.user);
-      setRecipes(response.data.recipes || []);
+      const data = await getProfile();      // ✅ data = { user: {...}, recipes: [...] }
+      console.log('Profile data:', data);
+
+      setProfile(data.user);
+      setRecipes(data.recipes || []);
       setFormData({
-        name: response.data.user.name || '',
-        bio: response.data.user.bio || ''
+        name: data.user.name || '',
+        bio: data.user.bio || ''
       });
-      if (response.data.user.profileImage) {
-        setImagePreview(response.data.user.profileImage);
+      if (data.user.profileImage) {
+        setImagePreview(data.user.profileImage);
       }
     } catch (err) {
       console.error('Error fetching profile:', err);
+      setError('Failed to load profile');
     } finally {
       setLoading(false);
     }
@@ -39,6 +45,9 @@ function Profile({ user, setUser }) {
     fetchProfile();
   }, []);
 
+  // --------------------------------------------
+  // Image preview
+  // --------------------------------------------
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -48,24 +57,44 @@ function Profile({ user, setUser }) {
     reader.readAsDataURL(file);
   };
 
+  // --------------------------------------------
+  // Update profile – send FormData only when a new file is chosen
+  // --------------------------------------------
   const handleUpdate = async (e) => {
     e.preventDefault();
     setUpdating(true);
     setError('');
     try {
-      const data = {
-        name: formData.name,
-        bio: formData.bio
-      };
+      let payload;
+
       if (profileImage) {
-        data.profileImage = profileImage;
+        // If a new image is selected, use FormData (as your api.js expects)
+        payload = new FormData();
+        payload.append('name', formData.name);
+        payload.append('bio', formData.bio);
+        payload.append('profileImage', profileImage);
+      } else {
+        // Otherwise, send plain JSON – your api.js will still work because it
+        // sets Content-Type: multipart/form-data only when FormData is passed.
+        // But we can send a plain object – the interceptor will handle it.
+        payload = {
+          name: formData.name,
+          bio: formData.bio
+        };
       }
-      const response = await updateProfile(data);
-      setProfile(response.data.user);
-      setUser(response.data.user);
+
+      // ✅ updateProfile returns the updated user data directly
+      const updatedUser = await updateProfile(payload);
+      console.log('Updated user:', updatedUser);
+
+      // Handle both possible response shapes: { user: {...} } or just the user object
+      const newUser = updatedUser.user || updatedUser;
+
+      setProfile(newUser);
+      setUser(newUser);
       setEditing(false);
       setProfileImage(null);
-      // Refresh profile
+      // Optionally refresh the whole profile (to get updated recipe list, etc.)
       await fetchProfile();
     } catch (err) {
       console.error('Error updating profile:', err);
@@ -75,6 +104,9 @@ function Profile({ user, setUser }) {
     }
   };
 
+  // --------------------------------------------
+  // Render
+  // --------------------------------------------
   if (loading) return <Loader fullScreen />;
   if (!profile) return null;
 

@@ -39,11 +39,11 @@ function Register({ onLogin }) {
     try {
       const { name, email, password } = formData;
       const response = await registerUser({ name, email, password });
-      const { user, token } = response.data;
+      const { user, token } = response;
       onLogin(token, user);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      setError(err.response?.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -16,13 +16,31 @@ function AddRecipe() {
     setError("");
 
     try {
+      // Axios interceptor already returns response.data
       const response = await createRecipe(data);
 
-      if (response?.data?.recipe?._id) {
-        navigate(`/recipe/${response.data.recipe._id}`);
-      } else {
-        setError("Recipe created, but no recipe ID was returned.");
+      console.log("Create Recipe Response:", response);
+
+      if (!response.success) {
+        throw new Error(response.message || "Failed to create recipe.");
       }
+      navigate("/");
+
+      // Get recipe ID from different possible response formats
+      const recipeId =
+        response.recipe?._id ||
+        response.recipeId ||
+        response._id;
+
+      if (!recipeId) {
+        console.warn("Recipe created but no ID returned:", response);
+
+        // Go to home if recipe was created but ID wasn't returned
+        navigate("/");
+        return;
+      }
+
+      navigate(`/recipe/${recipeId}`);
     } catch (err) {
       console.error("Create Recipe Error:", err);
 
