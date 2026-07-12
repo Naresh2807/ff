@@ -27,6 +27,8 @@ const __dirname = path.dirname(__filename);
 const allowedOrigins = [
   "https://flavorfusionff123.netlify.app",
   "http://localhost:5173",
+  "https://6a53a7ced32eef675d9d37ee--deluxe-sorbet-b1f760.netlify.app",
+  "https://deluxe-sorbet-b1f760.netlify.app"
 ];
 
 const corsOptions = {
