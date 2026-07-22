@@ -43,6 +43,13 @@ const userSchema = new mongoose.Schema(
         ref: "Recipe",
       },
     ],
+
+    // ✅ New role field for admin access
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
   },
   {
     timestamps: true,
