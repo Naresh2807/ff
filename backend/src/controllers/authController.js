@@ -59,6 +59,7 @@ export const register = async (req, res) => {
         bio: user.bio,
         profileImage: user.profileImage,
         favorites: user.favorites,
+        role: user.role, // ✅ added
         createdAt: user.createdAt,
       },
     });
@@ -121,6 +122,7 @@ export const login = async (req, res) => {
         bio: user.bio,
         profileImage: user.profileImage,
         favorites: user.favorites,
+        role: user.role, // ✅ added
         createdAt: user.createdAt,
       },
     });
@@ -158,7 +160,16 @@ export const getMe = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      user,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        bio: user.bio,
+        profileImage: user.profileImage,
+        favorites: user.favorites,
+        role: user.role, // ✅ added
+        createdAt: user.createdAt,
+      },
     });
 
   } catch (error) {
