@@ -102,33 +102,41 @@ app.get("/api", (req, res) => {
     success: true,
     message: "FlavorFusion REST API",
     routes: {
-      // ... (keep your existing route list)
+      // (keep your existing route list – omitted for brevity)
     },
   });
 });
 
 /* ==========================================
-   ✅ REGISTER API ROUTES (Order matters)
+   ✅ REGISTER API ROUTES
 ========================================== */
 
-// 1. Public / unprotected routes
 app.use("/api/auth", authRoutes);
-
-// 2. Protected user routes (require auth)
 app.use("/api/profile", profileRoutes);
 app.use("/api/recipes", recipeRoutes);
 app.use("/api/mealplans", mealPlanRoutes);
 app.use("/api/favorites", favoriteRoutes);
 
-// 3. ✅ Admin routes (require auth + admin role) – placed after other routes
-app.use("/api/admin", adminRoutes); // This will now work because `app` is defined
+// ✅ Admin routes – must come after auth/protected routes
+app.use("/api/admin", adminRoutes);
 
 /* ==========================================
    Route Checker
 ========================================== */
 
 app.get("/api/check", (req, res) => {
-  // ... (keep as is)
+  res.status(200).json({
+    success: true,
+    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    routes: [
+      { route: "/api/auth", status: "Available" },
+      { route: "/api/profile", status: "Available" },
+      { route: "/api/recipes", status: "Available" },
+      { route: "/api/mealplans", status: "Available" },
+      { route: "/api/favorites", status: "Available" },
+      { route: "/api/admin", status: "Available" },
+    ],
+  });
 });
 
 /* ==========================================
@@ -158,12 +166,34 @@ async function startServer() {
     });
     console.log("✅ MongoDB Connected Successfully");
 
+    // ─── Auto‑seed Admin ────────────────────────────
+    // Only run if:
+    //   - Environment is NOT production, OR
+    //   - Environment variable AUTO_SEED_ADMIN is set to 'true'
+    const shouldSeed =
+      process.env.NODE_ENV !== 'production' ||
+      process.env.AUTO_SEED_ADMIN === 'true';
+
+    if (shouldSeed) {
+      try {
+        const { default: seedAdmin } = await import('./utils/seedAdmin.js');
+        await seedAdmin();
+        console.log('✅ Admin seeding check completed.');
+      } catch (seedErr) {
+        console.error('⚠️ Auto‑seed error:', seedErr.message);
+      }
+    } else {
+      console.log('⏩ Auto‑seeding skipped (production mode).');
+    }
+
+    // ─── Start server ────────────────────────────────
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📌 Admin routes: /api/admin`);
     });
+
   } catch (error) {
-    console.error("❌ MongoDB Connection Failed", error);
+    console.error("❌ Server start failed:", error);
     process.exit(1);
   }
 }
